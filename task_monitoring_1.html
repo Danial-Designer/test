@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Task Monitoring</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #f2f4f7;
+    margin: 0;
+    padding: 30px;
+  }
+  .container {
+    max-width: 1000px;
+    margin: 0 auto;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    padding: 28px 32px;
+  }
+  h1 {
+    font-size: 22px;
+    color: #222;
+    margin-bottom: 4px;
+  }
+  p.subtitle {
+    font-size: 13px;
+    color: #777;
+    margin-top: 0;
+    margin-bottom: 22px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  th, td {
+    padding: 10px 8px;
+    text-align: left;
+    font-size: 14px;
+    border-bottom: 1px solid #e6e6e6;
+  }
+  th {
+    color: #555;
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  input[type="text"], input[type="date"], select {
+    width: 100%;
+    padding: 7px 8px;
+    font-size: 14px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    box-sizing: border-box;
+    font-family: inherit;
+  }
+  input[readonly] {
+    background: #f5f5f5;
+    color: #444;
+  }
+  select.status-progress {
+    color: #b8860b;
+    font-weight: 600;
+  }
+  select.status-complete {
+    color: #1a8a4a;
+    font-weight: 600;
+  }
+  .worker-name {
+    font-weight: 600;
+  }
+  .remove-btn {
+    background: none;
+    border: none;
+    color: #cc3333;
+    cursor: pointer;
+    font-size: 16px;
+  }
+  .add-row-btn {
+    margin-top: 16px;
+    padding: 9px 16px;
+    background: #2d6cdf;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .add-row-btn:hover {
+    background: #2557b8;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Task Monitoring</h1>
+  <p class="subtitle">Due date is automatically set to 3 days after the start date.</p>
+
+  <table id="taskTable">
+    <thead>
+      <tr>
+        <th style="width:16%">Worker</th>
+        <th style="width:30%">Task</th>
+        <th style="width:16%">Start date</th>
+        <th style="width:16%">Due date</th>
+        <th style="width:15%">Status</th>
+        <th style="width:4%"></th>
+      </tr>
+    </thead>
+    <tbody id="taskBody"></tbody>
+  </table>
+
+  <button class="add-row-btn" onclick="addRow()">+ Add task</button>
+  <button class="add-row-btn" style="background:#1a8a4a; margin-left:10px;" onclick="exportToExcel()">Export to Excel</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+  const defaultWorkers = ['Worker 1', 'Worker 2', 'Worker 3'];
+  const STORAGE_KEY = 'task_monitoring_rows';
+
+  function addDays(dateStr, days) {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    return d.toISOString().split('T')[0];
+  }
+
+  function createRow(data) {
+    const tbody = document.getElementById('taskBody');
+    const tr = document.createElement('tr');
+
+    tr.innerHTML = `
+      <td><input type="text" class="worker-input" placeholder="Worker name" value="${data.worker || ''}"></td>
+      <td><input type="text" class="task-input" placeholder="Describe the task" value="${data.task || ''}"></td>
+      <td><input type="date" class="start-input" value="${data.start || ''}"></td>
+      <td><input type="date" class="due-input" readonly value="${data.due || ''}"></td>
+      <td>
+        <select class="status-input">
+          <option value="In Progress" ${data.status === 'In Progress' ? 'selected' : ''}>In progress</option>
+          <option value="Complete" ${data.status === 'Complete' ? 'selected' : ''}>Complete</option>
+        </select>
+      </td>
+      <td><button class="remove-btn" onclick="removeRow(this)" aria-label="Remove task">&times;</button></td>
+    `;
+
+    tbody.appendChild(tr);
+
+    const startInput = tr.querySelector('.start-input');
+    const dueInput = tr.querySelector('.due-input');
+    const statusSelect = tr.querySelector('.status-input');
+
+    startInput.addEventListener('change', () => {
+      if (startInput.value) {
+        dueInput.value = addDays(startInput.value, 3);
+      } else {
+        dueInput.value = '';
+      }
+      saveRows();
+    });
+
+    statusSelect.addEventListener('change', () => {
+      updateStatusColor(statusSelect);
+      saveRows();
+    });
+    updateStatusColor(statusSelect);
+
+    tr.querySelector('.worker-input').addEventListener('input', saveRows);
+    tr.querySelector('.worker-input').addEventListener('blur', saveRows);
+    tr.querySelector('.task-input').addEventListener('input', saveRows);
+    tr.querySelector('.task-input').addEventListener('blur', saveRows);
+  }
+
+  function updateStatusColor(select) {
+    select.classList.remove('status-progress', 'status-complete');
+    if (select.value === 'Complete') {
+      select.classList.add('status-complete');
+    } else {
+      select.classList.add('status-progress');
+    }
+  }
+
+  function addRow(data) {
+    createRow(data || {});
+    saveRows();
+  }
+
+  function removeRow(btn) {
+    btn.closest('tr').remove();
+    saveRows();
+  }
+
+  function saveRows() {
+    const rows = [];
+    document.querySelectorAll('#taskBody tr').forEach(tr => {
+      rows.push({
+        worker: tr.querySelector('.worker-input').value,
+        task: tr.querySelector('.task-input').value,
+        start: tr.querySelector('.start-input').value,
+        due: tr.querySelector('.due-input').value,
+        status: tr.querySelector('.status-input').value
+      });
+    });
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+    } catch (e) {}
+  }
+
+  function loadRows() {
+    let saved = null;
+    try {
+      saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    } catch (e) {}
+
+    if (saved && saved.length > 0) {
+      saved.forEach(row => createRow(row));
+    } else {
+      defaultWorkers.forEach(name => createRow({ worker: name }));
+    }
+  }
+
+  function exportToExcel() {
+    saveRows();
+    const rows = [];
+    document.querySelectorAll('#taskBody tr').forEach(tr => {
+      rows.push({
+        'Worker': tr.querySelector('.worker-input').value,
+        'Task': tr.querySelector('.task-input').value,
+        'Start Date': tr.querySelector('.start-input').value,
+        'Due Date': tr.querySelector('.due-input').value,
+        'Status': tr.querySelector('.status-input').value
+      });
+    });
+
+    if (rows.length === 0) {
+      alert('No tasks to export yet.');
+      return;
+    }
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 16 }, { wch: 40 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Task Monitoring');
+
+    const today = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, 'task_monitoring_' + today + '.xlsx');
+  }
+
+  window.addEventListener('beforeunload', saveRows);
+
+  loadRows();
+</script>
+
+</body>
+</html>
